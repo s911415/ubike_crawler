@@ -1,10 +1,14 @@
-import sqlite3_mod from 'sqlite3';
-import fetch from 'node-fetch';
-import https from 'https';
+const sqlite3_mod = require('sqlite3');
+const fetch = require('node-fetch');
+const https = require('https');
 
 const sqlite3 = sqlite3_mod.verbose();
 
 const FILE_PATH = process.argv[2];
+
+if (FILE_PATH === undefined) {
+    throw new Error(`InvalidArgumentException\nUsage node ${process.argv[1]} databaseName.db`);
+}
 
 let agent = new https.Agent({
     keepAlive: true,
@@ -24,8 +28,43 @@ function transformDate(str) {
     ];
 
     let iArr = arr.map(v => parseInt(str.substr(...v), 10));
-
+    iArr[1] -= 1; // Month start from zero
     return new Date(...iArr);
+}
+
+async function createTableIfNotExists(dbCon) {
+    return await new Promise((a, b) => {
+        dbCon.serialize(function () {
+            dbCon.run(`
+              CREATE TABLE IF NOT EXISTS "stations" (
+                "no"      TEXT          NOT NULL,
+                "name"    TEXT          NOT NULL,
+                "area"    TEXT          NOT NULL,
+                "address" TEXT          NOT NULL,
+                "total"   INTEGER       NOT NULL,
+                "lat"     DECIMAL(3, 5) NOT NULL,
+                "lng"     DECIMAL(3, 5) NOT NULL,
+                PRIMARY KEY ("no")
+              )
+            `);
+
+            dbCon.run(`
+              CREATE TABLE IF NOT EXISTS "status" (
+                "no"                                TEXT    NOT NULL,
+                "time"                              INTEGER NOT NULL,
+                "number_of_available_vehicles"      INTEGER NOT NULL,
+                "number_of_available_parking_space" INTEGER NOT NULL,
+                "is_servicing"                      INTEGER NOT NULL,
+                PRIMARY KEY ("no", "time"),
+                CONSTRAINT "station_fk" FOREIGN KEY ("no") REFERENCES "stations" ("no")
+                  ON DELETE RESTRICT
+                  ON UPDATE RESTRICT
+              )
+            `);
+
+            a(dbCon);
+        });
+    });
 }
 
 async function createDbCon() {
@@ -186,5 +225,5 @@ function loop() {
 
 createDbCon().then(db => {
     dbCon = db;
-    loop();
+    createTableIfNotExists(db).then(loop);
 });
